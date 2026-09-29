@@ -1,0 +1,16 @@
+name = "fun-friday-turn-credentials"
+main = "src/index.js"
+compatibility_date = "2026-09-29"
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGIN = "https://nandkumarmohite.github.io"
+METERED_APP_NAME = "FUN_FRIDAY_APP_9834900568_NBM"
+
+[[ratelimits]]
+name = "TURN_CREDENTIALS_LIMITER"
+namespace_id = "7412639"
+
+[ratelimits.simple]
+limit = 60
+period = 60

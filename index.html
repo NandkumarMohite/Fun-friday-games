@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f3eb">
+  <meta name="turn-credentials-endpoint" content="https://fun-friday-turn-credentials.fun-friday.workers.dev/turn-credentials">
   <title>Friday Quiz Club</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23c9f05a'/%3E%3Ctext x='32' y='47' text-anchor='middle' font-family='sans-serif' font-size='48' font-weight='700' fill='%2317251f'%3EF%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -379,6 +380,23 @@
       el.classList.toggle("connected", connected);
       byId(player ? "playerConnectionText" : "connectionText").textContent = text;
     }
+    async function createConfiguredPeer(peerId = null) {
+      const endpoint = document.querySelector('meta[name="turn-credentials-endpoint"]')?.content.trim();
+      const options = {};
+      if (endpoint) {
+        const response = await fetch(endpoint, { cache: "no-store" });
+        if (!response.ok) throw new Error(`TURN credentials unavailable (${response.status}).`);
+        const payload = await response.json();
+        const iceServers = Array.isArray(payload) ? payload : payload.iceServers;
+        const hasTurn = Array.isArray(iceServers) && iceServers.some(server => {
+          const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+          return urls.some(url => typeof url === "string" && /^turns?:/i.test(url));
+        });
+        if (!hasTurn) throw new Error("TURN service returned no relay servers.");
+        options.config = { iceServers };
+      }
+      return peerId ? new Peer(peerId, options) : new Peer(options);
+    }
     function currentQuestion() { return quiz[state.questionIndex]; }
     function formatClock(seconds) { return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`; }
     function renderOptions(question, disabled = false, selected = -1, answer = -1) {
@@ -450,10 +468,19 @@
       renderLobby();
       broadcastState();
     }
-    function createRoom(attempt = 0) {
+    async function createRoom(attempt = 0) {
       if (!window.Peer) { notify("Could not load multiplayer. Check your internet connection."); return; }
       byId("hostNote").textContent = "Connecting to the room service…";
-      const peer = state.roomId ? new Peer(state.roomId) : new Peer();
+      let peer;
+      try {
+        peer = await createConfiguredPeer(state.roomId);
+      } catch (error) {
+        state.peer = null;
+        byId("hostNote").textContent = "Couldn't get TURN settings. Check the relay setup and retry.";
+        notify(error.message || "TURN setup failed.");
+        renderLobby();
+        return;
+      }
       state.peer = peer;
       peer.on("open", id => {
         state.roomId = id;
@@ -1398,7 +1425,7 @@
       const input = value.trim();
       try { return new URL(input).searchParams.get("room") || input; } catch { return input; }
     }
-    function joinRoom(roomValue, name) {
+    async function joinRoom(roomValue, name) {
       const roomId = parseRoom(roomValue);
       if (!roomId) { notify("Enter a room code or invite link first."); return; }
       if (!window.Peer) { notify("Could not load multiplayer. Check your internet connection."); return; }
@@ -1416,7 +1443,17 @@
       state.playerName = (name || saved.name || `Player ${Math.floor(Math.random() * 90 + 10)}`).trim().slice(0, 20);
       writeSession(playerSessionKey(roomId), { token: state.playerToken, name: state.playerName });
       state.roomId = null;
-      const peer = new Peer();
+      let peer;
+      try {
+        peer = await createConfiguredPeer();
+      } catch (error) {
+        setConnected(false, "TURN SETUP FAILED", true);
+        byId("playerCategory").textContent = "CONNECTION SETUP FAILED";
+        byId("playerStage").innerHTML = `<div class="question-mark">?</div><h2>Couldn't prepare the connection.</h2><p class="subcopy">${escapeHtml(error.message || "TURN credentials could not be loaded.")}</p><button class="primary" id="retryTurnSetup">RETRY</button>`;
+        byId("playerNote").textContent = "Check the TURN service configuration, then retry.";
+        byId("retryTurnSetup").addEventListener("click", () => joinRoom(roomId, state.playerName));
+        return;
+      }
       state.peer = peer;
       peer.on("open", () => {
         connectPlayer(roomId);
