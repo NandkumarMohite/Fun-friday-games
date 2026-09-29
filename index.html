@@ -1402,7 +1402,15 @@
       const roomId = parseRoom(roomValue);
       if (!roomId) { notify("Enter a room code or invite link first."); return; }
       if (!window.Peer) { notify("Could not load multiplayer. Check your internet connection."); return; }
+      clearTimeout(state.joinTimeout);
+      clearTimeout(state.reconnectTimer);
+      if (state.playerConn?.open) state.playerConn.close();
+      if (state.peer?.destroy) state.peer.destroy();
+      state.peer = null;
+      state.playerConn = null;
       state.roomFull = false;
+      state.joinFailed = false;
+      state.joinAttempts = 0;
       const saved = getPlayerSession(roomId);
       state.playerToken = saved.token;
       state.playerName = (name || saved.name || `Player ${Math.floor(Math.random() * 90 + 10)}`).trim().slice(0, 20);
@@ -1415,11 +1423,32 @@
       });
       peer.on("error", error => {
         if (error.type === "peer-unavailable") schedulePlayerReconnect(roomId);
-        else byId("playerNote").textContent = "Couldn't connect to that room. Check the invite and try again.";
+        else showPlayerJoinFailure(roomId);
       });
     }
-    function schedulePlayerReconnect(roomId) {
+    function showPlayerJoinFailure(roomId) {
+      if (state.joinFailed || state.roomFull) return;
+      state.joinFailed = true;
+      clearTimeout(state.joinTimeout);
       clearTimeout(state.reconnectTimer);
+      const connection = state.playerConn;
+      state.playerConn = null;
+      if (connection && !connection.open) connection.close();
+      setConnected(false, "CONNECTION FAILED", true);
+      byId("playerCategory").textContent = "ROOM CONNECTION FAILED";
+      byId("playerTimer").textContent = "--:--";
+      byId("playerStage").innerHTML = `<div class="question-mark">?</div><h2>Couldn't connect to this room.</h2><p class="subcopy">Confirm this invite matches the host's current room. If the host is online, a VPN, firewall, or browser privacy setting may be blocking the peer connection.</p><button class="primary" id="retryRoom">RETRY CONNECTION</button>`;
+      byId("playerNote").textContent = "Check the invite and network, then retry.";
+      byId("retryRoom").addEventListener("click", () => joinRoom(roomId, state.playerName));
+    }
+    function schedulePlayerReconnect(roomId) {
+      if (state.joinFailed || state.roomFull) return;
+      clearTimeout(state.reconnectTimer);
+      state.joinAttempts = (state.joinAttempts || 0) + 1;
+      if (state.joinAttempts >= 4) {
+        showPlayerJoinFailure(roomId);
+        return;
+      }
       setConnected(false, "RECONNECTING", true);
       byId("playerNote").textContent = "Reconnecting to your quiz…";
       state.reconnectTimer = setTimeout(() => {
@@ -1430,7 +1459,13 @@
       if (!state.peer?.open || state.playerConn?.open) return;
       const connection = state.peer.connect(roomId, { reliable: true });
       state.playerConn = connection;
+      clearTimeout(state.joinTimeout);
+      state.joinTimeout = setTimeout(() => {
+        if (state.playerConn === connection && !connection.open) showPlayerJoinFailure(roomId);
+      }, 10000);
       connection.on("open", () => {
+        clearTimeout(state.joinTimeout);
+        state.joinAttempts = 0;
         clearTimeout(state.reconnectTimer);
         setConnected(true, "IN THE ROOM", true);
         byId("playerNote").textContent = `You're in, ${state.playerName}. Get ready!`;
@@ -1440,10 +1475,15 @@
       connection.on("close", () => {
         if (state.playerConn !== connection) return;
         state.playerConn = null;
-        if (state.roomFull) return;
+        clearTimeout(state.joinTimeout);
+        if (state.roomFull || state.joinFailed) return;
         schedulePlayerReconnect(roomId);
       });
-      connection.on("error", () => schedulePlayerReconnect(roomId));
+      connection.on("error", () => {
+        if (state.playerConn === connection) state.playerConn = null;
+        clearTimeout(state.joinTimeout);
+        schedulePlayerReconnect(roomId);
+      });
     }
     function renderPlayerState(data) {
       if (data?.type === "room-full") {
