@@ -40,7 +40,7 @@ export default {
 
     const appName = env.METERED_APP_NAME;
     const apiKey = env.METERED_TURN_API_KEY;
-    if (!appName || !apiKey || !/^[a-z0-9-]+$/i.test(appName)) {
+    if (!appName || !apiKey || !/^[a-z0-9_-]+$/i.test(appName)) {
       return jsonResponse({ error: "TURN provider is not configured." }, 503, headers);
     }
 
