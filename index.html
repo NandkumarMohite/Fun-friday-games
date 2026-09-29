@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f3eb">
   <title>Friday Quiz Club</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23c9f05a'/%3E%3Ctext x='32' y='47' text-anchor='middle' font-family='sans-serif' font-size='48' font-weight='700' fill='%2317251f'%3EF%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -82,6 +83,7 @@
     .invite-label { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; }
     .room-code { min-height: 29px; margin: 5px 0 11px; overflow-wrap: anywhere; font: 17px var(--mono); font-weight: 500; }
     .invite-row { display: flex; gap: 7px; }
+    .fresh-room-button { width: 100%; margin-top: 8px; border-color: #b64b3b; color: #9c3429; }
     .invite-row input, .join-form input { min-width: 0; flex: 1; height: 39px; padding: 0 10px; border: 1px solid var(--line); background: var(--white); color: var(--ink); font-size: 12px; }
     .copy-button { height: 39px; padding: 0 10px; border: 1px solid var(--ink); background: var(--white); font-size: 11px; font-weight: 700; }
     .players { padding: 2px 16px 12px; flex: 1; }
@@ -243,6 +245,7 @@
               <div class="invite-label">ROOM CODE</div>
               <div class="room-code" id="roomCode">Create a room</div>
               <div class="invite-row"><input id="inviteLink" readonly aria-label="Invite link" placeholder="Invite link appears here"><button class="copy-button" id="copyInvite">COPY</button></div>
+              <button class="copy-button fresh-room-button" id="freshRoom" type="button" title="Close this room, clear saved room data on this device, and create a fresh room">CLEAR ROOM DATA &amp; NEW ROOM</button>
             </div>
             <div class="players" id="playersList"><div class="empty-roster">Create a room, then share the invite link so everyone can join on their phone.</div></div>
             <div class="join-area"><div class="eyebrow">JOIN A ROOM</div><form class="join-form" id="joinForm"><input id="roomInput" placeholder="Paste room code or invite link" autocomplete="off" aria-label="Room code or invite link"><button aria-label="Join room" title="Join room">→</button></form></div>
@@ -530,6 +533,56 @@
         state.peer = null;
         renderLobby();
       });
+    }
+    function createFreshRoom() {
+      if (!state.game) { notify("Choose a game before creating a room."); return; }
+      if (!confirm("End this room, disconnect its players, clear saved room scores on this device, and create a new room? Players on other devices keep their own browser data.")) return;
+      clearInterval(state.tick);
+      const previousPeer = state.peer;
+      for (const connection of state.connections.values()) connection.close();
+      state.connections.clear();
+      state.playerConnections.clear();
+      if (previousPeer?.destroy) previousPeer.destroy();
+      state.peer = null;
+      state.roomId = null;
+      state.players = new Map();
+      state.mode = "lobby";
+      state.questionIndex = 0;
+      state.seconds = 20;
+      state.answer = null;
+      state.drawRound = 0;
+      state.drawerToken = null;
+      state.drawWord = "";
+      state.drawStrokes = [];
+      state.guessedTokens = new Set();
+      state.tournamentRound = 0;
+      state.tournamentMatches = [];
+      state.tournamentNextTokens = [];
+      state.tournamentChampion = null;
+      state.scrambleRound = 0;
+      state.scrambleOrder = [];
+      state.scrambleWord = "";
+      state.scramblePuzzle = "";
+      state.raceRound = 0;
+      state.raceProgress = {};
+      state.raceParticipants = [];
+      state.raceFinishOrder = [];
+      state.raceWinner = null;
+      state.raceLastPress.clear();
+      localStorage.removeItem(HOST_SESSION_KEY);
+      for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+        const key = localStorage.key(index);
+        if (key?.startsWith(PLAYER_SESSION_PREFIX)) localStorage.removeItem(key);
+      }
+      const cleanUrl = new URL(location.href);
+      cleanUrl.search = "";
+      history.replaceState(null, "", cleanUrl.toString());
+      setConnected(false, "NOT CONNECTED");
+      byId("roomCode").textContent = "Creating a fresh room…";
+      byId("inviteLink").value = "";
+      renderRoster();
+      renderLobby();
+      createRoom();
     }
     function handleHostMessage(connection, data) {
       if (!data || typeof data.type !== "string") return;
@@ -1480,6 +1533,7 @@
       try { await navigator.clipboard.writeText(byId("inviteLink").value); notify("Invite link copied."); }
       catch { byId("inviteLink").select(); document.execCommand("copy"); notify("Invite link copied."); }
     });
+    byId("freshRoom").addEventListener("click", createFreshRoom);
 
     window.addEventListener("pagehide", () => {
       if (!hostApp.classList.contains("hidden") && state.roomId) {
