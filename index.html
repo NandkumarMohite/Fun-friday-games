@@ -85,6 +85,13 @@
     .room-code { min-height: 29px; margin: 5px 0 11px; overflow-wrap: anywhere; font: 17px var(--mono); font-weight: 500; }
     .invite-row { display: flex; gap: 7px; }
     .fresh-room-button { width: 100%; margin-top: 8px; border-color: #b64b3b; color: #9c3429; }
+    .host-passkey-dialog { width: min(420px, calc(100% - 28px)); padding: 24px; border: 1px solid var(--ink); background: var(--white); color: var(--ink); box-shadow: 6px 6px 0 var(--ink); }
+    .host-passkey-dialog::backdrop { background: rgba(23, 37, 31, .65); }
+    .host-passkey-dialog h2 { margin: 0 0 8px; font-size: 23px; }
+    .host-passkey-dialog p { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .host-passkey-dialog input { width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--line); font: inherit; }
+    .host-passkey-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+    .host-passkey-error { min-height: 18px; margin-top: 8px; color: #9c3429; font-size: 12px; }
     .invite-row input, .join-form input { min-width: 0; flex: 1; height: 39px; padding: 0 10px; border: 1px solid var(--line); background: var(--white); color: var(--ink); font-size: 12px; }
     .copy-button { height: 39px; padding: 0 10px; border: 1px solid var(--ink); background: var(--white); font-size: 11px; font-weight: 700; }
     .players { padding: 2px 16px 12px; flex: 1; }
@@ -264,6 +271,15 @@
       <div class="stage-foot"><span class="status-note" id="playerNote">Connect to the room to get started.</span></div>
     </section>
   </div>
+  <dialog class="host-passkey-dialog" id="hostPasskeyDialog" aria-labelledby="hostPasskeyTitle">
+    <form id="hostPasskeyForm">
+      <h2 id="hostPasskeyTitle">Host access</h2>
+      <p>Enter the host passkey to create or resume a room.</p>
+      <input id="hostPasskeyInput" type="password" autocomplete="current-password" required aria-label="Host passkey" placeholder="Host passkey">
+      <div class="host-passkey-error" id="hostPasskeyError" role="status"></div>
+      <div class="host-passkey-actions"><button class="secondary" type="button" id="cancelHostAccess">CANCEL</button><button class="primary" type="submit">UNLOCK</button></div>
+    </form>
+  </dialog>
   <div class="toast" id="toast" role="status"></div>
   <div class="reaction-overlay" id="reactionOverlay" aria-live="polite" aria-atomic="true"><div class="reaction-content"><span class="reaction-face" aria-hidden="true">😜</span><p class="reaction-message">Whoops! Keep those guesses coming.</p></div></div>
 
@@ -282,6 +298,11 @@
     const HOST_SESSION_KEY = "fridayQuizHostSession";
     const PLAYER_SESSION_PREFIX = "fridayQuizPlayer:";
     const RACE_PLAYER_LIMIT = 25;
+    const HOST_PASSKEY = "9834900568NBM";
+    const HOST_AUTH_SESSION_KEY = "fridayQuizHostAuthorized";
+    function readHostAuthorization() {
+      try { return sessionStorage.getItem(HOST_AUTH_SESSION_KEY) === "true"; } catch { return false; }
+    }
     function readSession(key) {
       try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; }
     }
@@ -289,7 +310,7 @@
       try { localStorage.setItem(key, JSON.stringify(value)); } catch { notify("Session storage is unavailable in this browser."); }
     }
     const savedHost = readSession(HOST_SESSION_KEY);
-    const state = { peer: null, connections: new Map(), playerConnections: new Map(), players: new Map(), game: savedHost?.game || null, mode: "lobby", questionIndex: 0, seconds: 20, tick: null, answer: null, playerQuestionIndex: -1, wrongFlashQuestion: -1, playerConn: null, playerName: "", playerToken: "", roomId: savedHost?.roomId || null, drawRound: 0, drawerToken: null, drawWord: "", drawStrokes: [], guessedTokens: new Set(), tournamentRound: 0, tournamentMatches: [], tournamentNextTokens: [], tournamentChampion: null, scrambleRound: 0, scrambleOrder: [], scrambleWord: "", scramblePuzzle: "", raceRound: 0, raceProgress: {}, raceParticipants: [], raceFinishOrder: [], raceWinner: null, raceLastPress: new Map() };
+    const state = { peer: null, connections: new Map(), playerConnections: new Map(), players: new Map(), game: savedHost?.game || null, mode: "lobby", questionIndex: 0, seconds: 20, tick: null, answer: null, playerQuestionIndex: -1, wrongFlashQuestion: -1, playerConn: null, playerName: "", playerToken: "", roomId: savedHost?.roomId || null, drawRound: 0, drawerToken: null, drawWord: "", drawStrokes: [], guessedTokens: new Set(), tournamentRound: 0, tournamentMatches: [], tournamentNextTokens: [], tournamentChampion: null, scrambleRound: 0, scrambleOrder: [], scrambleWord: "", scramblePuzzle: "", raceRound: 0, raceProgress: {}, raceParticipants: [], raceFinishOrder: [], raceWinner: null, raceLastPress: new Map(), hostAuthorized: readHostAuthorization(), pendingHostAction: null };
     if (savedHost && Array.isArray(savedHost.players)) {
       state.mode = ["lobby", "question", "reveal", "finished", "drawing", "draw-reveal", "tournament", "tournament-reveal", "scramble", "scramble-reveal", "racing", "race-reveal"].includes(savedHost.mode) ? savedHost.mode : "lobby";
       state.questionIndex = Math.max(0, Math.min(quiz.length - 1, Number(savedHost.questionIndex) || 0));
@@ -380,6 +401,14 @@
       el.classList.toggle("connected", connected);
       byId(player ? "playerConnectionText" : "connectionText").textContent = text;
     }
+    function requireHostAuthorization(action) {
+      if (state.hostAuthorized) return true;
+      state.pendingHostAction = action;
+      const dialog = byId("hostPasskeyDialog");
+      if (!dialog.open) dialog.showModal();
+      byId("hostPasskeyInput").focus();
+      return false;
+    }
     async function createConfiguredPeer(peerId = null) {
       const endpoint = document.querySelector('meta[name="turn-credentials-endpoint"]')?.content.trim();
       const options = {};
@@ -469,6 +498,7 @@
       broadcastState();
     }
     async function createRoom(attempt = 0) {
+      if (!requireHostAuthorization(() => createRoom(attempt))) return;
       if (!window.Peer) { notify("Could not load multiplayer. Check your internet connection."); return; }
       byId("hostNote").textContent = "Connecting to the room service…";
       let peer;
@@ -562,6 +592,7 @@
       });
     }
     function createFreshRoom() {
+      if (!requireHostAuthorization(createFreshRoom)) return;
       if (!state.game) { notify("Choose a game before creating a room."); return; }
       if (!confirm("End this room, disconnect its players, clear saved room scores on this device, and create a new room? Players on other devices keep their own browser data.")) return;
       clearInterval(state.tick);
@@ -1610,6 +1641,31 @@
       try { await navigator.clipboard.writeText(byId("inviteLink").value); notify("Invite link copied."); }
       catch { byId("inviteLink").select(); document.execCommand("copy"); notify("Invite link copied."); }
     });
+    byId("hostPasskeyForm").addEventListener("submit", event => {
+      event.preventDefault();
+      const input = byId("hostPasskeyInput");
+      if (input.value !== HOST_PASSKEY) {
+        byId("hostPasskeyError").textContent = "That passkey didn't match. Try again.";
+        input.value = "";
+        input.focus();
+        return;
+      }
+      state.hostAuthorized = true;
+      try { sessionStorage.setItem(HOST_AUTH_SESSION_KEY, "true"); } catch { }
+      byId("hostPasskeyError").textContent = "";
+      input.value = "";
+      byId("hostPasskeyDialog").close();
+      const pendingAction = state.pendingHostAction;
+      state.pendingHostAction = null;
+      pendingAction?.();
+    });
+    byId("cancelHostAccess").addEventListener("click", () => {
+      state.pendingHostAction = null;
+      byId("hostPasskeyError").textContent = "";
+      byId("hostPasskeyInput").value = "";
+      byId("hostPasskeyDialog").close();
+    });
+    byId("hostPasskeyDialog").addEventListener("cancel", () => { state.pendingHostAction = null; });
     byId("freshRoom").addEventListener("click", createFreshRoom);
 
     window.addEventListener("pagehide", () => {
