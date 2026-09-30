@@ -310,7 +310,7 @@
       try { localStorage.setItem(key, JSON.stringify(value)); } catch { notify("Session storage is unavailable in this browser."); }
     }
     const savedHost = readSession(HOST_SESSION_KEY);
-    const state = { peer: null, connections: new Map(), playerConnections: new Map(), players: new Map(), game: savedHost?.game || null, mode: "lobby", questionIndex: 0, seconds: 20, tick: null, answer: null, playerQuestionIndex: -1, wrongFlashQuestion: -1, playerConn: null, playerName: "", playerToken: "", roomId: savedHost?.roomId || null, drawRound: 0, drawerToken: null, drawWord: "", drawStrokes: [], guessedTokens: new Set(), tournamentRound: 0, tournamentMatches: [], tournamentNextTokens: [], tournamentChampion: null, scrambleRound: 0, scrambleOrder: [], scrambleWord: "", scramblePuzzle: "", raceRound: 0, raceProgress: {}, raceParticipants: [], raceFinishOrder: [], raceWinner: null, raceLastPress: new Map(), hostAuthorized: readHostAuthorization(), pendingHostAction: null };
+    const state = { peer: null, connections: new Map(), playerConnections: new Map(), players: new Map(), game: savedHost?.game || null, mode: "lobby", questionIndex: 0, seconds: 20, tick: null, answer: null, playerQuestionIndex: -1, wrongFlashQuestion: -1, playerConn: null, playerName: "", playerToken: "", roomId: savedHost?.roomId || null, drawRound: 0, drawerToken: null, drawWord: "", drawStrokes: [], guessedTokens: new Set(), tournamentRound: 0, tournamentMatches: [], tournamentNextTokens: [], tournamentChampion: null, scrambleRound: 0, scrambleOrder: [], scrambleWord: "", scramblePuzzle: "", raceRound: 0, raceProgress: {}, raceParticipants: [], raceFinishOrder: [], raceWinner: null, raceLastPress: new Map(), raceBroadcastTimer: null, raceLastPersistAt: 0, roomBroadcastTimer: null, pendingBroadcastOptions: null, hostAuthorized: readHostAuthorization(), pendingHostAction: null };
     if (savedHost && Array.isArray(savedHost.players)) {
       state.mode = ["lobby", "question", "reveal", "finished", "drawing", "draw-reveal", "tournament", "tournament-reveal", "scramble", "scramble-reveal", "racing", "race-reveal"].includes(savedHost.mode) ? savedHost.mode : "lobby";
       state.questionIndex = Math.max(0, Math.min(quiz.length - 1, Number(savedHost.questionIndex) || 0));
@@ -680,23 +680,37 @@
         state.raceLastPress.set(token, now);
         state.raceProgress[token] = Math.min(100, (state.raceProgress[token] || 0) + 1);
         if (state.raceProgress[token] >= 100) state.raceFinishOrder.push(token);
-        persistHost();
+        if (now - state.raceLastPersistAt >= 1000) {
+          state.raceLastPersistAt = now;
+          persistHost();
+        }
         renderRaceHost();
-        broadcastState();
+        scheduleRaceBroadcast();
         if (state.raceParticipants.every(playerToken => state.raceFinishOrder.includes(playerToken))) finishRaceHeat();
         return;
       }
       if (data.type === "stroke" && state.game === "draw" && state.mode === "drawing" && connection.playerToken === state.drawerToken) {
-        if (typeof data.id !== "string" || !Array.isArray(data.points) || data.points.length < 2) return;
-        const points = data.points.slice(-1200).filter(point => Number.isFinite(point.x) && Number.isFinite(point.y)).map(point => ({ x: Math.max(0, Math.min(1, point.x)), y: Math.max(0, Math.min(1, point.y)) }));
-        if (points.length < 2) return;
+        if (typeof data.id !== "string" || !Array.isArray(data.points) || data.points.length < 1 || data.points.length > 64) return;
+        const points = data.points.filter(point => Number.isFinite(point.x) && Number.isFinite(point.y)).map(point => ({ x: Math.max(0, Math.min(1, point.x)), y: Math.max(0, Math.min(1, point.y)) }));
+        if (!points.length) return;
         const strokeId = `${connection.playerToken}:${data.id.slice(0, 80)}`;
-        const existing = state.drawStrokes.findIndex(stroke => stroke.id === strokeId);
-        const stroke = { id: strokeId, points };
-        if (existing < 0) state.drawStrokes.push(stroke);
-        else state.drawStrokes[existing] = stroke;
-        renderDrawHost();
-        broadcastState();
+        let stroke = state.drawStrokes.find(candidate => candidate.id === strokeId);
+        if (data.start) {
+          if (stroke) return;
+          stroke = { id: strokeId, points };
+          state.drawStrokes.push(stroke);
+        } else {
+          if (!stroke) return;
+          if (!data.from || !Number.isFinite(data.from.x) || !Number.isFinite(data.from.y)) return;
+          stroke.points.push(...points);
+          if (stroke.points.length > 1200) stroke.points.splice(0, stroke.points.length - 1200);
+        }
+        const from = data.start ? null : { x: Math.max(0, Math.min(1, data.from.x)), y: Math.max(0, Math.min(1, data.from.y)) };
+        drawCanvasSegment(byId("hostDrawCanvas"), from, points);
+        const update = { type: "draw-stroke", from, points, start: Boolean(data.start) };
+        for (const recipient of state.connections.values()) {
+          if (recipient !== connection && recipient.open) recipient.send(update);
+        }
         return;
       }
       if (data.type === "clear-drawing" && state.game === "draw" && state.mode === "drawing" && connection.playerToken === state.drawerToken) {
@@ -751,6 +765,9 @@
         const player = state.players.get(connection.playerToken);
         const guess = normalizeScrambleWord(data.answer);
         if (!player || player.answered || data.round !== state.scrambleRound || !guess) return;
+        const now = Date.now();
+        if (now - (player.lastScrambleGuessAt || 0) < 300) return;
+        player.lastScrambleGuessAt = now;
         player.answer = String(data.answer).slice(0, 40);
         if (guess === normalizeScrambleWord(state.scrambleWord)) {
           player.answered = true;
@@ -776,7 +793,7 @@
         broadcastState();
       }
     }
-    function sendState(connection) {
+    function sendState(connection, { includeDrawStrokes = true } = {}) {
       if (!connection.open) return;
       const revealTournamentPicks = state.mode === "tournament-reveal" || state.mode === "finished";
       const scrambleReveal = state.mode === "scramble-reveal" || state.mode === "finished";
@@ -790,7 +807,7 @@
         drawRound: state.drawRound,
         drawerToken: state.drawerToken,
         word: connection.playerToken === state.drawerToken ? state.drawWord : state.mode === "draw-reveal" ? state.drawWord : null,
-        strokes: state.drawStrokes,
+        strokes: includeDrawStrokes ? state.drawStrokes : undefined,
         guessedTokens: [...state.guessedTokens],
         tournamentRound: state.tournamentRound,
         tournamentMatches: state.tournamentMatches.map(match => ({ ...match, choice1: revealTournamentPicks ? match.choice1 : null, choice2: revealTournamentPicks ? match.choice2 : null, picked1: Boolean(match.choice1), picked2: Boolean(match.choice2) })),
@@ -810,7 +827,25 @@
         reveal: state.mode === "reveal" || state.mode === "finished" || state.mode === "draw-reveal" || scrambleReveal
       });
     }
-    function broadcastState() { for (const connection of state.connections.values()) sendState(connection); }
+    function broadcastState(options = {}) {
+      const includesDrawing = options.includeDrawStrokes !== false;
+      if (!state.pendingBroadcastOptions) state.pendingBroadcastOptions = { includeDrawStrokes: includesDrawing };
+      else state.pendingBroadcastOptions.includeDrawStrokes ||= includesDrawing;
+      if (state.roomBroadcastTimer) return;
+      state.roomBroadcastTimer = setTimeout(() => {
+        const snapshotOptions = state.pendingBroadcastOptions || {};
+        state.roomBroadcastTimer = null;
+        state.pendingBroadcastOptions = null;
+        for (const connection of state.connections.values()) sendState(connection, snapshotOptions);
+      }, 100);
+    }
+    function scheduleRaceBroadcast() {
+      if (state.raceBroadcastTimer || state.mode !== "racing") return;
+      state.raceBroadcastTimer = setTimeout(() => {
+        state.raceBroadcastTimer = null;
+        if (state.mode === "racing") broadcastState();
+      }, 250);
+    }
     function startQuiz() {
       if (!state.players.size) return;
       if (state.game === "rps") {
@@ -867,7 +902,7 @@
         state.seconds -= 1;
         byId("timerLabel").textContent = formatClock(state.seconds);
         persistHost();
-        broadcastState();
+        broadcastState({ includeDrawStrokes: state.mode !== "drawing" });
         if (state.seconds <= 0) {
           if (state.mode === "drawing") revealDrawWord();
           else if (state.mode === "scramble") revealScramble();
@@ -1072,12 +1107,15 @@
         return;
       }
       clearInterval(state.tick);
+      clearTimeout(state.raceBroadcastTimer);
+      state.raceBroadcastTimer = null;
       state.raceRound += 1;
       state.mode = "racing";
       state.seconds = 60;
       state.raceProgress = Object.fromEntries(state.raceParticipants.map(token => [token, 0]));
       state.raceFinishOrder = [];
       state.raceLastPress.clear();
+      state.raceLastPersistAt = Date.now();
       persistHost();
       renderRaceHost();
       broadcastState();
@@ -1086,6 +1124,8 @@
     function finishRaceHeat() {
       if (state.mode !== "racing") return;
       clearInterval(state.tick);
+      clearTimeout(state.raceBroadcastTimer);
+      state.raceBroadcastTimer = null;
       const results = raceRankedTokens();
       results.forEach((token, index) => {
         const player = state.players.get(token);
@@ -1303,6 +1343,20 @@
         context.stroke();
       }
     }
+    function drawCanvasSegment(canvas, from, points) {
+      if (!canvas || !Array.isArray(points) || !points.length) return;
+      const context = canvas.getContext("2d");
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.strokeStyle = "#17251f";
+      context.lineWidth = 7;
+      context.beginPath();
+      const start = from || points[0];
+      context.moveTo(start.x * canvas.width, start.y * canvas.height);
+      for (const point of (from ? points : points.slice(1))) context.lineTo(point.x * canvas.width, point.y * canvas.height);
+      if (!from && points.length === 1) context.lineTo(points[0].x * canvas.width + 0.1, points[0].y * canvas.height + 0.1);
+      context.stroke();
+    }
     function drawStatus() {
       const eligible = [...state.players.keys()].filter(token => token !== state.drawerToken && state.players.get(token)?.connected);
       return `${state.guessedTokens.size} / ${eligible.length} guessed`;
@@ -1410,7 +1464,7 @@
           });
         }
       }
-      paintStrokes(byId("playerDrawCanvas"), data.strokes);
+      if (Array.isArray(data.strokes)) paintStrokes(byId("playerDrawCanvas"), data.strokes);
       if (data.mode === "draw-reveal") {
         byId("playerNote").textContent = guessed ? "Nice guess!" : `The word was ${data.word || "revealed"}.`;
       } else if (isDrawer) {
@@ -1425,27 +1479,47 @@
     function setupDrawingCanvas(canvas) {
       let activeStroke = null;
       let sendQueued = false;
+      let nextSendAt = 0;
       const pointFor = event => {
         const rect = canvas.getBoundingClientRect();
         return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) };
       };
       const sendStroke = () => {
         sendQueued = false;
-        if (activeStroke && state.playerConn?.open) state.playerConn.send({ type: "stroke", id: activeStroke.id, points: activeStroke.points });
+        if (!activeStroke || !activeStroke.pending.length || !state.playerConn?.open) return;
+        const points = activeStroke.pending.splice(0, 64);
+        const from = activeStroke.lastSent;
+        activeStroke.lastSent = points[points.length - 1];
+        state.playerConn.send({ type: "stroke", id: activeStroke.id, from, points, start: !from });
+        nextSendAt = Date.now() + 100;
+        if (activeStroke.pending.length) {
+          sendQueued = true;
+          setTimeout(sendStroke, Math.max(0, nextSendAt - Date.now()));
+        }
       };
       canvas.addEventListener("pointerdown", event => {
         if (state.playerDrawMode !== "drawing") return;
         event.preventDefault();
         canvas.setPointerCapture(event.pointerId);
-        activeStroke = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, points: [pointFor(event)] };
-      });
-      canvas.addEventListener("pointermove", event => {
-        if (!activeStroke) return;
-        activeStroke.points.push(pointFor(event));
-        if (activeStroke.points.length > 1200) activeStroke.points.shift();
+        const firstPoint = pointFor(event);
+        activeStroke = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, lastPoint: firstPoint, lastSent: null, pending: [firstPoint] };
+        drawCanvasSegment(canvas, null, [firstPoint]);
         if (!sendQueued) {
           sendQueued = true;
           requestAnimationFrame(sendStroke);
+        }
+      });
+      canvas.addEventListener("pointermove", event => {
+        if (!activeStroke) return;
+        const point = pointFor(event);
+        drawCanvasSegment(canvas, activeStroke.lastPoint, [point]);
+        activeStroke.lastPoint = point;
+        activeStroke.pending.push(point);
+        if (!sendQueued) {
+          sendQueued = true;
+          const delay = Math.max(0, nextSendAt - Date.now());
+          if (delay) setTimeout(sendStroke, delay);
+          else requestAnimationFrame(sendStroke);
         }
       });
       const finishStroke = () => { if (activeStroke) sendStroke(); activeStroke = null; };
@@ -1554,6 +1628,10 @@
       });
     }
     function renderPlayerState(data) {
+      if (data?.type === "draw-stroke") {
+        drawCanvasSegment(byId("playerDrawCanvas"), data.from, data.points);
+        return;
+      }
       if (data?.type === "room-full") {
         state.roomFull = true;
         setConnected(false, "ROOM FULL", true);
