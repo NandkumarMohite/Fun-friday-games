@@ -162,6 +162,13 @@
     .scramble-form input { flex: 1; min-width: 0; height: 48px; padding: 0 13px; border: 1px solid var(--line); font: 600 16px var(--sans); }
     .scramble-form button { padding: 0 17px; border: 1px solid var(--ink); background: var(--green); font-weight: 700; }
     .scramble-form button:disabled, .scramble-form input:disabled { opacity: .55; }
+    .who-question-list { width: min(540px, 100%); max-height: 230px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 8px 0 14px; }
+    .who-question-list button { min-height: 40px; padding: 7px 10px; border: 1px solid var(--line); background: var(--white); color: var(--ink); text-align: left; font-size: 12px; }
+    .who-question-list button:hover:not(:disabled) { border-color: var(--blue); background: #eef1ff; }
+    .who-question-list button:disabled { opacity: .5; cursor: default; }
+    .who-hint { width: min(540px, 100%); margin: 0 0 12px; padding: 11px 13px; border-left: 3px solid var(--coral); background: #fff1eb; color: var(--ink); font-size: 14px; font-weight: 600; line-height: 1.45; text-align: left; }
+    .who-clues { width: min(540px, 100%); max-height: 110px; overflow: auto; margin: 0 0 10px; color: var(--muted); font-size: 12px; text-align: left; }
+    .who-clues p { margin: 4px 0; }
     .race-lanes { width: min(760px, 100%); display: grid; gap: 12px; text-align: left; }
     .race-lane { display: grid; grid-template-columns: minmax(82px, 125px) minmax(0, 1fr) 42px; align-items: center; gap: 10px; }
     .race-driver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
@@ -211,6 +218,7 @@
       .stage-head { padding-inline: 14px; }
       .stage-foot { align-items: flex-start; flex-direction: column; }
       .stage-foot .primary, .stage-foot .secondary { width: 100%; }
+      .who-question-list { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -226,6 +234,7 @@
         <button class="game-choice" data-select-game="rps"><span class="game-choice-icon" aria-hidden="true">✊</span><span class="game-choice-title">Mini Tournament</span><span class="game-choice-copy">Rock, Paper, Scissors. Face off, replay ties, and crown a tournament winner.</span></button>
         <button class="game-choice" data-select-game="scramble"><span class="game-choice-icon" aria-hidden="true">Aa</span><span class="game-choice-title">Word Scramble</span><span class="game-choice-copy">Unscramble a set of words. Solve quickly to score more points.</span></button>
         <button class="game-choice" data-select-game="race"><span class="game-choice-icon" aria-hidden="true">🏎</span><span class="game-choice-title">Turbo Tap Race</span><span class="game-choice-copy">Click or tap to race. Three heats, live positions, and a winner's podium.</span></button>
+        <button class="game-choice" data-select-game="whoami"><span class="game-choice-icon" aria-hidden="true">?</span><span class="game-choice-title">Who Am I?</span><span class="game-choice-copy">Ask yes-or-no questions, narrow down the mystery identity, and race to guess.</span></button>
       </div>
     </div>
   </section>
@@ -312,9 +321,9 @@
     const savedHost = readSession(HOST_SESSION_KEY);
     const state = { peer: null, connections: new Map(), playerConnections: new Map(), players: new Map(), game: savedHost?.game || null, mode: "lobby", questionIndex: 0, seconds: 20, tick: null, answer: null, playerQuestionIndex: -1, wrongFlashQuestion: -1, playerConn: null, playerName: "", playerToken: "", roomId: savedHost?.roomId || null, drawRound: 0, drawerToken: null, drawWord: "", drawStrokes: [], guessedTokens: new Set(), tournamentRound: 0, tournamentMatches: [], tournamentNextTokens: [], tournamentChampion: null, scrambleRound: 0, scrambleOrder: [], scrambleWord: "", scramblePuzzle: "", raceRound: 0, raceProgress: {}, raceParticipants: [], raceFinishOrder: [], raceWinner: null, raceLastPress: new Map(), raceBroadcastTimer: null, raceLastPersistAt: 0, roomBroadcastTimer: null, pendingBroadcastOptions: null, hostAuthorized: readHostAuthorization(), pendingHostAction: null };
     if (savedHost && Array.isArray(savedHost.players)) {
-      state.mode = ["lobby", "question", "reveal", "finished", "drawing", "draw-reveal", "tournament", "tournament-reveal", "scramble", "scramble-reveal", "racing", "race-reveal"].includes(savedHost.mode) ? savedHost.mode : "lobby";
+      state.mode = ["lobby", "question", "reveal", "finished", "drawing", "draw-reveal", "tournament", "tournament-reveal", "scramble", "scramble-reveal", "racing", "race-reveal", "whoami", "whoami-reveal"].includes(savedHost.mode) ? savedHost.mode : "lobby";
       state.questionIndex = Math.max(0, Math.min(quiz.length - 1, Number(savedHost.questionIndex) || 0));
-      const maxSavedSeconds = state.mode === "racing" ? 60 : state.mode === "drawing" ? 45 : 20;
+      const maxSavedSeconds = state.mode === "racing" ? 60 : state.mode === "whoami" ? 180 : state.mode === "drawing" ? 45 : 20;
       state.seconds = Math.max(1, Math.min(maxSavedSeconds, Number(savedHost.seconds) || 20));
       state.drawRound = Math.max(0, Number(savedHost.drawRound) || 0);
       state.drawerToken = savedHost.drawerToken || null;
@@ -329,6 +338,10 @@
       state.scrambleOrder = Array.isArray(savedHost.scrambleOrder) ? savedHost.scrambleOrder : [];
       state.scrambleWord = typeof savedHost.scrambleWord === "string" ? savedHost.scrambleWord : "";
       state.scramblePuzzle = typeof savedHost.scramblePuzzle === "string" ? savedHost.scramblePuzzle : "";
+      state.whoAmIRound = Math.max(0, Number(savedHost.whoAmIRound) || 0);
+      state.whoAmIOrder = Array.isArray(savedHost.whoAmIOrder) ? savedHost.whoAmIOrder : [];
+      state.whoAmIIdentity = savedHost.whoAmIIdentity && typeof savedHost.whoAmIIdentity.name === "string" ? savedHost.whoAmIIdentity : null;
+      state.whoAmIQuestions = Array.isArray(savedHost.whoAmIQuestions) ? savedHost.whoAmIQuestions : [];
       state.raceRound = Math.max(0, Number(savedHost.raceRound) || 0);
       state.raceProgress = savedHost.raceProgress && typeof savedHost.raceProgress === "object" ? savedHost.raceProgress : {};
       state.raceParticipants = Array.isArray(savedHost.raceParticipants) ? savedHost.raceParticipants : [];
@@ -338,6 +351,10 @@
         if (player.token && typeof player.name === "string") state.players.set(player.token, { name: player.name, score: Number(player.score) || 0, fridayScore: Number.isFinite(player.fridayScore) ? player.fridayScore : Number(player.score) || 0, answer: Number.isInteger(player.answer) ? player.answer : null, answered: Boolean(player.answered), connected: false });
       }
     }
+    state.whoAmIRound ??= 0;
+    state.whoAmIOrder ??= [];
+    state.whoAmIIdentity ??= null;
+    state.whoAmIQuestions ??= [];
     const byId = id => document.getElementById(id);
     const hostApp = byId("hostApp");
     const playerApp = byId("playerApp");
@@ -364,6 +381,10 @@
         scrambleOrder: state.scrambleOrder,
         scrambleWord: state.scrambleWord,
         scramblePuzzle: state.scramblePuzzle,
+        whoAmIRound: state.whoAmIRound,
+        whoAmIOrder: state.whoAmIOrder,
+        whoAmIIdentity: state.whoAmIIdentity,
+        whoAmIQuestions: state.whoAmIQuestions,
         raceRound: state.raceRound,
         raceProgress: state.raceProgress,
         raceParticipants: state.raceParticipants,
@@ -449,17 +470,18 @@
     }
     function renderLobby() {
       byId("roundLabel").textContent = "LOBBY / WAITING";
-      byId("categoryLabel").textContent = state.game === "draw" ? "DRAW & GUESS" : state.game === "rps" ? "ROCK PAPER SCISSORS" : state.game === "scramble" ? "WORD SCRAMBLE" : state.game === "race" ? "TURBO TAP RACE" : "READY WHEN YOU ARE";
+      byId("categoryLabel").textContent = state.game === "draw" ? "DRAW & GUESS" : state.game === "rps" ? "ROCK PAPER SCISSORS" : state.game === "scramble" ? "WORD SCRAMBLE" : state.game === "race" ? "TURBO TAP RACE" : state.game === "whoami" ? "WHO AM I?" : "READY WHEN YOU ARE";
       byId("timerLabel").textContent = "--:--";
       const isDrawGame = state.game === "draw";
       const isRpsGame = state.game === "rps";
       const isScrambleGame = state.game === "scramble";
       const isRaceGame = state.game === "race";
-      setHostStage(`<div class="question-mark">${isDrawGame ? "✎" : isRpsGame ? "✊" : isScrambleGame ? "Aa" : isRaceGame ? "🏎" : "✳"}</div><h2>Get your people in here.</h2><p class="subcopy">${isDrawGame ? "Take turns drawing secret words while the room races to guess. Invite at least two players to begin." : isRpsGame ? "Face off in quick, simultaneous Rock Paper Scissors matches. Ties replay, and the last player standing wins." : isScrambleGame ? "Solve eight scrambled words. Faster correct answers earn more points." : isRaceGame ? `Up to ${RACE_PLAYER_LIMIT} racers. Three one-minute heats; click or tap quickly to move your car.` : "Start a room, share the invite link, and when your crew appears, kick off eight quick-fire questions."}</p>`);
+      const isWhoAmIGame = state.game === "whoami";
+      setHostStage(`<div class="question-mark">${isDrawGame ? "✎" : isRpsGame ? "✊" : isScrambleGame ? "Aa" : isRaceGame ? "🏎" : isWhoAmIGame ? "?" : "✳"}</div><h2>Get your people in here.</h2><p class="subcopy">${isDrawGame ? "Take turns drawing secret words while the room races to guess. Invite at least two players to begin." : isRpsGame ? "Face off in quick, simultaneous Rock Paper Scissors matches. Ties replay, and the last player standing wins." : isScrambleGame ? "Solve eight scrambled words. Faster correct answers earn more points." : isRaceGame ? `Up to ${RACE_PLAYER_LIMIT} racers. Three one-minute heats; click or tap quickly to move your car.` : isWhoAmIGame ? "Everyone shares a mystery identity. Ask yes-or-no questions, then guess before time runs out." : "Start a room, share the invite link, and when your crew appears, kick off eight quick-fire questions."}</p>`);
       byId("hostNote").textContent = state.peer ? "Room is open. Waiting for players." : state.roomId ? "Resume your room to reconnect everyone." : "Create a room to get your invite link.";
       const connectedPlayers = [...state.players.values()].filter(player => player.connected).length;
       const canStart = connectedPlayers >= (isDrawGame || isRpsGame || isRaceGame ? 2 : 1);
-      const startLabel = isDrawGame ? "START DRAW & GUESS" : isRpsGame ? "START TOURNAMENT" : isScrambleGame ? "START WORD SCRAMBLE" : isRaceGame ? "START THE RACE" : "START THE QUIZ";
+      const startLabel = isDrawGame ? "START DRAW & GUESS" : isRpsGame ? "START TOURNAMENT" : isScrambleGame ? "START WORD SCRAMBLE" : isRaceGame ? "START THE RACE" : isWhoAmIGame ? "START WHO AM I?" : "START THE QUIZ";
       byId("hostActions").innerHTML = state.peer ? `<button class="primary" id="startGame" ${canStart ? "" : "disabled"}>${startLabel}</button><button class="secondary" id="changeGame">CHANGE GAME</button>` : `<button class="primary" id="createRoom">${state.roomId ? "RESUME ROOM" : "CREATE A ROOM"}</button>${state.game ? `<button class="secondary" id="changeGame">CHANGE GAME</button>` : ""}`;
       byId("startGame")?.addEventListener("click", startQuiz);
       byId("createRoom")?.addEventListener("click", () => createRoom());
@@ -469,7 +491,7 @@
       });
     }
     function selectGame(game) {
-      if (!["trivia", "draw", "rps", "scramble", "race"].includes(game)) return;
+      if (!["trivia", "draw", "rps", "scramble", "race", "whoami"].includes(game)) return;
       state.game = game;
       state.mode = "lobby";
       state.questionIndex = 0;
@@ -486,6 +508,10 @@
       state.scrambleOrder = [];
       state.scrambleWord = "";
       state.scramblePuzzle = "";
+      state.whoAmIRound = 0;
+      state.whoAmIOrder = [];
+      state.whoAmIIdentity = null;
+      state.whoAmIQuestions = [];
       state.raceRound = 0;
       state.raceProgress = {};
       state.raceParticipants = [];
@@ -535,6 +561,13 @@
           broadcastState();
         } else if (state.mode === "scramble-reveal") {
           renderScrambleReveal();
+          broadcastState();
+        } else if (state.mode === "whoami") {
+          renderWhoAmIHost();
+          runQuestionTimer();
+          broadcastState();
+        } else if (state.mode === "whoami-reveal") {
+          renderWhoAmIReveal();
           broadcastState();
         } else if (state.mode === "drawing") {
           renderDrawHost();
@@ -621,6 +654,10 @@
       state.scrambleOrder = [];
       state.scrambleWord = "";
       state.scramblePuzzle = "";
+      state.whoAmIRound = 0;
+      state.whoAmIOrder = [];
+      state.whoAmIIdentity = null;
+      state.whoAmIQuestions = [];
       state.raceRound = 0;
       state.raceProgress = {};
       state.raceParticipants = [];
@@ -761,6 +798,40 @@
         broadcastState();
         return;
       }
+      if (data.type === "who-question" && state.game === "whoami" && state.mode === "whoami") {
+        const question = state.whoAmIIdentity?.questions.find(candidate => candidate.id === data.questionId);
+        if (!question || data.round !== state.whoAmIRound || state.whoAmIQuestions.some(entry => entry.id === question.id)) return;
+        if (state.whoAmIQuestions.filter(entry => entry.playerToken === connection.playerToken).length >= 2) return;
+        state.whoAmIQuestions.push({ id: question.id, answer: question.answer, playerToken: connection.playerToken });
+        persistHost();
+        renderWhoAmIHost();
+        broadcastState();
+        return;
+      }
+      if (data.type === "who-guess" && state.game === "whoami" && state.mode === "whoami") {
+        const player = state.players.get(connection.playerToken);
+        if (!player || player.answered || data.round !== state.whoAmIRound) return;
+        const now = Date.now();
+        if (now - (player.lastWhoGuessAt || 0) < 300) return;
+        player.lastWhoGuessAt = now;
+        const guess = normalizeWhoAmI(data.guess);
+        if (guess && guess === normalizeWhoAmI(state.whoAmIIdentity?.name)) {
+          player.answer = state.whoAmIIdentity.name;
+          player.answered = true;
+          player.whoWrong = false;
+          awardPoints(player, 1000 + state.seconds * 50);
+          persistHost();
+          renderRoster();
+          renderWhoAmIHost();
+          broadcastState();
+          const activePlayers = [...state.players.values()].filter(candidate => candidate.connected);
+          if (activePlayers.length && activePlayers.every(candidate => candidate.answered)) revealWhoAmI();
+        } else {
+          player.whoWrong = true;
+          broadcastState();
+        }
+        return;
+      }
       if (data.type === "scramble-answer" && state.game === "scramble" && state.mode === "scramble") {
         const player = state.players.get(connection.playerToken);
         const guess = normalizeScrambleWord(data.answer);
@@ -797,6 +868,7 @@
       if (!connection.open) return;
       const revealTournamentPicks = state.mode === "tournament-reveal" || state.mode === "finished";
       const scrambleReveal = state.mode === "scramble-reveal" || state.mode === "finished";
+      const whoAmIReveal = state.mode === "whoami-reveal" || state.mode === "finished";
       connection.send({
         type: "state",
         game: state.game,
@@ -823,8 +895,14 @@
         scrambleRounds: state.scrambleOrder.length || 8,
         scramblePuzzle: state.scramblePuzzle,
         scrambleWord: scrambleReveal ? state.scrambleWord : null,
-        players: [...state.players.entries()].map(([token, player]) => ({ token, name: player.name, score: player.score, fridayScore: player.fridayScore || 0, answer: state.game === "scramble" && !scrambleReveal && token !== connection.playerToken ? null : player.answer, answered: player.answered })),
-        reveal: state.mode === "reveal" || state.mode === "finished" || state.mode === "draw-reveal" || scrambleReveal
+        whoAmIRound: state.whoAmIRound,
+        whoAmIRounds: state.whoAmIOrder.length || 8,
+        whoAmIHint: state.game === "whoami" && state.mode !== "lobby" ? state.whoAmIIdentity?.hint || null : null,
+        whoAmIAvailableQuestions: state.game === "whoami" && state.mode === "whoami" ? (state.whoAmIIdentity?.questions || []).map(({ id, label }) => ({ id, label })) : [],
+        whoAmIQuestions: state.whoAmIQuestions,
+        whoAmIIdentity: whoAmIReveal ? state.whoAmIIdentity?.name || null : null,
+        players: [...state.players.entries()].map(([token, player]) => ({ token, name: player.name, score: player.score, fridayScore: player.fridayScore || 0, answer: (state.game === "scramble" && !scrambleReveal || state.game === "whoami" && !whoAmIReveal) && token !== connection.playerToken ? null : player.answer, answered: player.answered, whoWrong: state.game === "whoami" && token === connection.playerToken ? Boolean(player.whoWrong) : false })),
+        reveal: state.mode === "reveal" || state.mode === "finished" || state.mode === "draw-reveal" || scrambleReveal || state.mode === "whoami-reveal"
       });
     }
     function broadcastState(options = {}) {
@@ -882,6 +960,13 @@
         startScrambleRound();
         return;
       }
+      if (state.game === "whoami") {
+        state.players.forEach(player => { player.score = 0; player.answer = null; player.answered = false; player.whoWrong = false; });
+        state.whoAmIOrder = shuffleScrambleWords(whoAmIIdentities).slice(0, 8);
+        state.whoAmIRound = 0;
+        startWhoAmIRound();
+        return;
+      }
       state.questionIndex = 0;
       state.players.forEach(player => { player.score = 0; player.answer = null; player.answered = false; });
       startQuestion();
@@ -906,6 +991,7 @@
         if (state.seconds <= 0) {
           if (state.mode === "drawing") revealDrawWord();
           else if (state.mode === "scramble") revealScramble();
+          else if (state.mode === "whoami") revealWhoAmI();
           else if (state.mode === "racing") finishRaceHeat();
           else revealAnswer();
         }
@@ -952,13 +1038,47 @@
       byId("categoryLabel").textContent = "FINAL SCORES";
       byId("timerLabel").textContent = "GG!";
       const winnerMessage = state.game === "rps" ? "wins the tournament!" : state.game === "race" ? "wins the race tournament!" : "takes the crown!";
-      byId("roundLabel").textContent = state.game === "race" ? "RACE / COMPLETE" : "QUIZ / COMPLETE";
+      byId("roundLabel").textContent = state.game === "race" ? "RACE / COMPLETE" : state.game === "whoami" ? "WHO AM I? / COMPLETE" : "QUIZ / COMPLETE";
       setHostStage(`<div class="question-mark">★</div><h2>${winner ? `${escapeHtml(winner.name)} ${winnerMessage}` : "That's a wrap!"}</h2><div class="options">${ranked.map((player, index) => `<div class="option"><span class="letter">${index + 1}</span><span>${escapeHtml(player.name)} <strong>${player.score.toLocaleString()}</strong></span></div>`).join("")}</div>`);
       byId("hostNote").textContent = "Thanks for playing. Same time next Friday?";
       byId("hostActions").innerHTML = `<button class="primary" id="playAgain">PLAY AGAIN</button>`;
       byId("playAgain").addEventListener("click", () => { state.mode = "lobby"; persistHost(); renderLobby(); broadcastState(); });
       broadcastState();
     }
+    const whoAmIIdentity = (id, name, hint, yesQuestions, noQuestions) => {
+      if (yesQuestions.length !== 5 || noQuestions.length !== 5) throw new Error(`${name} needs five yes and five no questions.`);
+      return {
+        name,
+        hint,
+        questions: [
+          ...yesQuestions.map((label, index) => ({ id: `${id}-yes-${index}`, label, answer: true })),
+          ...noQuestions.map((label, index) => ({ id: `${id}-no-${index}`, label, answer: false }))
+        ]
+      };
+    };
+    const whoAmIIdentities = [
+      whoAmIIdentity("taylor", "Taylor Swift", "I am a famous singer who wrote songs like Shake It Off and Love Story.", ["Did you sing Shake It Off?", "Did you release an album called 1989?", "Did you headline the Eras Tour?", "Are you known for writing your own songs?", "Did you begin your music career in country music?"], ["Are you a tennis champion?", "Are you a soccer player from Argentina?", "Are you an astronaut?", "Are you a cartoon character?", "Do you live under the sea?"]),
+      whoAmIIdentity("beyonce", "Beyonce", "I am a famous singer known for Single Ladies and big live shows.", ["Did you sing Single Ladies?", "Were you a member of Destiny's Child?", "Are you known as Queen Bey?", "Have you performed at the Super Bowl halftime show?", "Are you famous for singing and dancing?"], ["Are you a professional tennis player?", "Did you walk on the Moon?", "Are you a soccer player from Argentina?", "Do you live under the sea?", "Are you a wizard at Hogwarts?"]),
+      whoAmIIdentity("serena", "Serena Williams", "I am a tennis champion who won many major titles.", ["Are you famous for playing tennis?", "Did you win 23 Grand Slam singles titles?", "Have you competed at Wimbledon?", "Have you won Olympic gold medals?", "Did you grow up playing tennis with your sister Venus?"], ["Are you a famous singer?", "Are you a soccer player from Argentina?", "Did you walk on the Moon?", "Are you a wizard?", "Do you live in a pineapple?"]),
+      whoAmIIdentity("messi", "Lionel Messi", "I am a famous soccer player from Argentina who won the 2022 World Cup.", ["Did you captain Argentina to the 2022 World Cup win?", "Did you play for Barcelona?", "Are you known as a great soccer forward?", "Have you worn number 10 for Argentina?", "Have you won the Ballon d'Or many times?"], ["Are you a professional tennis player?", "Are you a famous singer?", "Were you the first person on the Moon?", "Are you a cartoon mouse?", "Do you live underwater?"]),
+      whoAmIIdentity("einstein", "Albert Einstein", "I was a famous scientist with wild white hair who studied space and time.", ["Were you a famous physicist?", "Did you develop the theory of relativity?", "Is E = mc2 linked to your work?", "Did you win a Nobel Prize in Physics?", "Were you born in Germany?"], ["Are you a famous singer?", "Are you a professional athlete?", "Are you a superhero?", "Do you live underwater?", "Are you a detective in London?"]),
+      whoAmIIdentity("armstrong", "Neil Armstrong", "I was an astronaut and the first person to walk on the Moon.", ["Were you an astronaut?", "Were you the first person to walk on the Moon?", "Did you travel on Apollo 11?", "Did you work for NASA?", "Did you walk on the Moon in 1969?"], ["Are you a famous singer?", "Are you a professional tennis player?", "Are you a comic book superhero?", "Do you live underwater?", "Are you a wizard at Hogwarts?"]),
+      whoAmIIdentity("spiderman", "Spider-Man", "I am a superhero who shoots webs and swings between buildings.", ["Can you shoot webs from your wrists?", "Can you climb walls?", "Is your real name Peter Parker?", "Do you swing between buildings in New York?", "Do you wear a spider symbol on your suit?"], ["Do you protect Gotham City?", "Are you an Amazon princess?", "Are you a yellow sea sponge?", "Are you a wizard with a lightning scar?", "Are you a soccer player from Argentina?"]),
+      whoAmIIdentity("batman", "Batman", "I wear a black suit and cape. I fight crime at night.", ["Do you fight crime at night in Gotham?", "Is Bruce Wayne your secret identity?", "Do you use a bat symbol?", "Do you drive the Batmobile?", "Do you wear a cape and cowl?"], ["Can you shoot webs from your wrists?", "Are you an Amazon princess?", "Do you live underwater?", "Are you a soccer player from Argentina?", "Can you make ice with your hands?"]),
+      whoAmIIdentity("wonderwoman", "Wonder Woman", "I am a superhero princess who fights with a magic lasso.", ["Do you fight with a magic lasso?", "Are you Princess Diana of Themyscira?", "Do you come from an island of Amazons?", "Are you a member of the Justice League?", "Do you wear bracelets that can block bullets?"], ["Do you protect Gotham City?", "Can you shoot webs from your wrists?", "Do you live in a pineapple?", "Are you a soccer player from Argentina?", "Do you have a lightning-shaped scar?"]),
+      whoAmIIdentity("elsa", "Elsa", "I am the queen from Frozen who can make ice and snow with my hands.", ["Can you create ice and snow with your hands?", "Are you the queen from Frozen?", "Is Anna your sister?", "Do you sing Let It Go?", "Do you live in Arendelle?"], ["Do you protect Gotham City?", "Can you shoot webs from your wrists?", "Are you a professional soccer player?", "Are you a detective in London?", "Do you live in a pineapple?"]),
+      whoAmIIdentity("harry", "Harry Potter", "I am a young wizard with a lightning-shaped scar on my forehead.", ["Do you have a lightning-shaped scar?", "Do you attend Hogwarts?", "Are you known as the Boy Who Lived?", "Is your owl named Hedwig?", "Are Ron and Hermione your close friends?"], ["Are you a superhero from Gotham?", "Can you shoot webs from your wrists?", "Are you a yellow sea sponge?", "Are you a professional athlete?", "Are you the first person to walk on the Moon?"]),
+      whoAmIIdentity("hermione", "Hermione Granger", "I am a clever young witch and one of Harry Potter's best friends.", ["Are you a witch who attends Hogwarts?", "Are you one of Harry Potter's closest friends?", "Are you known for being clever and loving books?", "Do you help Harry and Ron solve problems?", "Is your cat named Crookshanks?"], ["Are you a superhero from Gotham?", "Do you live under the sea?", "Are you a soccer player from Argentina?", "Were you the first person on the Moon?", "Are you a cartoon mouse?"]),
+      whoAmIIdentity("mario", "Mario", "I am a video game hero who wears a red cap and jumps on mushrooms.", ["Do you wear a red cap with an M?", "Do you jump on enemies in video games?", "Are you a plumber from the Mushroom Kingdom?", "Is Luigi your brother?", "Do you try to rescue Princess Peach?"], ["Are you a detective in London?", "Are you a yellow sea sponge?", "Are you a wizard at Hogwarts?", "Did you win the World Cup with Argentina?", "Are you a real person?"]),
+      whoAmIIdentity("spongebob", "SpongeBob SquarePants", "I am a yellow sea sponge who lives in a pineapple under the sea and cooks burgers.", ["Are you a yellow sea sponge?", "Do you live in a pineapple under the sea?", "Do you cook at the Krusty Krab?", "Is Patrick your best friend?", "Do you live in Bikini Bottom?"], ["Are you a real person?", "Are you a superhero from Gotham?", "Are you a professional tennis player?", "Are you a royal princess?", "Are you a famous scientist?"]),
+      whoAmIIdentity("sherlock", "Sherlock Holmes", "I am a famous detective who solves mysteries with my friend Watson.", ["Are you a detective in London?", "Do you live at 221B Baker Street?", "Is Dr. Watson your friend and helper?", "Do you solve mysteries by noticing small details?", "Do you play the violin?"], ["Do you live under the sea?", "Are you a superhero from Gotham?", "Are you a professional tennis player?", "Are you a famous singer?", "Do you use a magic wand at Hogwarts?"]),
+      whoAmIIdentity("vader", "Darth Vader", "I am a masked villain dressed in black from Star Wars.", ["Are you a masked villain from Star Wars?", "Do you wear black armor and a helmet?", "Do you breathe through a mechanical mask?", "Do you wield a red lightsaber?", "Is Luke Skywalker your son?"], ["Can you shoot webs from your wrists?", "Do you protect Gotham City?", "Do you live in a pineapple?", "Are you a professional tennis player?", "Are you a famous cartoon mouse?"]),
+      whoAmIIdentity("mickey", "Mickey Mouse", "I am a famous cartoon mouse with round ears and red shorts.", ["Are you a cartoon mouse?", "Do you wear red shorts and yellow shoes?", "Are you known for your round black ears?", "Is Minnie Mouse your partner?", "Do you appear in Disney cartoons?"], ["Are you a yellow sea sponge?", "Do you protect Gotham City?", "Are you a real person?", "Are you a professional soccer player?", "Can you make ice and snow with your hands?"])
+    ];
+    state.whoAmIOrder = state.whoAmIOrder.map(identity => whoAmIIdentities.find(candidate => candidate.name === identity.name) || identity);
+    if (state.whoAmIIdentity) state.whoAmIIdentity = whoAmIIdentities.find(candidate => candidate.name === state.whoAmIIdentity.name) || state.whoAmIIdentity;
+    if (state.game === "whoami" && state.mode === "whoami" && !Array.isArray(state.whoAmIIdentity?.questions)) state.whoAmIQuestions = [];
+    const normalizeWhoAmI = value => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     const scrambleWords = ["cat", "dog", "sun", "hat", "pen", "cup", "jam", "map", "egg", "key", "bus", "bee", "fan", "pig", "fox", "red", "blue", "star", "moon", "book", "fish", "bird", "cake", "milk", "duck", "frog", "sock", "tree", "kite", "leaf", "desk", "ball", "apple", "beach", "chair", "cloud", "dance", "dream", "grape", "green", "house", "lemon", "mango", "music", "ocean", "pizza", "plant", "smile", "tiger", "train", "whale", "world", "zebra", "bread", "water", "quiet"];
     function shuffleScrambleWords(words) {
       const shuffled = [...words];
@@ -1071,6 +1191,122 @@
       const button = byId("scrambleForm")?.querySelector("button");
       if (button) button.disabled = Boolean(ownPlayer?.answered);
       byId("playerNote").textContent = ownPlayer?.answered ? "Solved! Nice work." : ownPlayer?.answer ? "Not quite. Try another guess." : "Solve quickly to earn more points.";
+    }
+    function startWhoAmIRound() {
+      if (state.whoAmIRound >= state.whoAmIOrder.length) {
+        showFinalScores();
+        return;
+      }
+      clearInterval(state.tick);
+      state.whoAmIIdentity = state.whoAmIOrder[state.whoAmIRound];
+      state.whoAmIRound += 1;
+      state.whoAmIQuestions = [];
+      state.seconds = 180;
+      state.mode = "whoami";
+      state.players.forEach(player => { player.answer = null; player.answered = false; player.whoWrong = false; });
+      persistHost();
+      renderWhoAmIHost();
+      broadcastState();
+      runQuestionTimer();
+    }
+    function renderWhoAmIHost() {
+      byId("roundLabel").textContent = `ROUND ${String(state.whoAmIRound).padStart(2, "0")} / ${String(state.whoAmIOrder.length || 8).padStart(2, "0")}`;
+      byId("categoryLabel").textContent = "WHO AM I?";
+      byId("timerLabel").textContent = formatClock(state.seconds);
+      const clues = state.whoAmIQuestions.map(entry => {
+        const question = state.whoAmIIdentity?.questions.find(candidate => candidate.id === entry.id);
+        return question ? `<p>${escapeHtml(question.label)} <strong>${entry.answer ? "Yes" : "No"}</strong></p>` : "";
+      }).join("");
+      setHostStage(`<div class="question-mark">?</div><h2>Ask yes or no. Guess the identity.</h2><p class="who-hint"><strong>STARTING HINT:</strong> ${escapeHtml(state.whoAmIIdentity?.hint || "Listen to the clue, ask yes-or-no questions, and guess the identity.")}</p><div class="who-clues">${clues || "No clues asked yet."}</div><p class="subcopy">The answer is hidden from players until the round ends.</p>`);
+      const clueHistory = byId("hostStage").querySelector(".who-clues");
+      if (clueHistory) clueHistory.scrollTop = clueHistory.scrollHeight;
+      const activePlayers = [...state.players.values()].filter(player => player.connected);
+      byId("hostNote").textContent = `${activePlayers.filter(player => player.answered).length} of ${activePlayers.length} guessed correctly`;
+      byId("hostActions").innerHTML = `<button class="primary" id="revealWhoAmI">REVEAL IDENTITY</button>`;
+      byId("revealWhoAmI").addEventListener("click", revealWhoAmI);
+    }
+    function revealWhoAmI() {
+      if (state.mode !== "whoami") return;
+      clearInterval(state.tick);
+      state.mode = "whoami-reveal";
+      persistHost();
+      renderWhoAmIReveal();
+      broadcastState();
+    }
+    function renderWhoAmIReveal() {
+      byId("roundLabel").textContent = `ROUND ${String(state.whoAmIRound).padStart(2, "0")} / ${String(state.whoAmIOrder.length || 8).padStart(2, "0")}`;
+      byId("categoryLabel").textContent = "IDENTITY REVEALED";
+      byId("timerLabel").textContent = "LOCKED";
+      const found = [...state.players.values()].filter(player => player.answered).length;
+      setHostStage(`<div class="question-mark">✓</div><h2>${escapeHtml(state.whoAmIIdentity?.name || "Mystery identity")}</h2><p class="subcopy">${found} player${found === 1 ? "" : "s"} guessed correctly.</p>`);
+      const finalRound = state.whoAmIRound >= state.whoAmIOrder.length;
+      byId("hostNote").textContent = "Faster correct guesses earned more points.";
+      byId("hostActions").innerHTML = `<button class="primary" id="nextWhoAmI">${finalRound ? "SEE FINAL SCORES" : "NEXT IDENTITY"}</button>`;
+      byId("nextWhoAmI").addEventListener("click", () => finalRound ? showFinalScores() : startWhoAmIRound());
+    }
+    function renderWhoAmIPlayer(data) {
+      if (data.mode === "lobby") {
+        byId("playerCategory").textContent = "WHO AM I?";
+        byId("playerTimer").textContent = "--:--";
+        byId("playerStage").innerHTML = `<div class="question-mark">?</div><h2>Ready to guess?</h2><p class="subcopy">Ask the room yes-or-no questions, then guess the mystery identity.</p>`;
+        byId("playerNote").textContent = "Waiting for the host to start…";
+        state.playerWhoAmIView = "lobby";
+        return;
+      }
+      if (data.mode === "finished") {
+        const ranked = [...data.players].sort((a, b) => b.score - a.score);
+        byId("playerCategory").textContent = "FINAL SCORES";
+        byId("playerTimer").textContent = "GG!";
+        byId("playerStage").innerHTML = `<div class="question-mark">★</div><h2>Who Am I? complete!</h2><div class="options">${ranked.map((player, index) => `<div class="option"><span class="letter">${index + 1}</span><span>${escapeHtml(player.name)} <strong>${player.score.toLocaleString()}</strong></span></div>`).join("")}</div>`;
+        byId("playerNote").textContent = "Thanks for playing!";
+        state.playerWhoAmIView = "finished";
+        return;
+      }
+      if (data.mode === "whoami-reveal") {
+        byId("playerCategory").textContent = "IDENTITY REVEALED";
+        byId("playerTimer").textContent = "LOCKED";
+        byId("playerStage").innerHTML = `<div class="question-mark">✓</div><h2>${escapeHtml(data.whoAmIIdentity || "Mystery identity")}</h2><p class="subcopy">The next identity is coming up.</p>`;
+        byId("playerNote").textContent = "Faster correct guesses earned more points.";
+        state.playerWhoAmIView = "reveal";
+        return;
+      }
+      const ownPlayer = data.players.find(player => player.token === state.playerToken);
+      const availableQuestions = Array.isArray(data.whoAmIAvailableQuestions) ? data.whoAmIAvailableQuestions : [];
+      byId("playerCategory").textContent = `ROUND ${String(data.whoAmIRound).padStart(2, "0")} / ${String(data.whoAmIRounds).padStart(2, "0")}`;
+      byId("playerTimer").textContent = formatClock(data.seconds);
+      if (state.playerWhoAmIRound !== data.whoAmIRound || state.playerWhoAmIView !== "active") {
+        state.playerWhoAmIRound = data.whoAmIRound;
+        state.playerWhoAmIView = "active";
+        byId("playerStage").innerHTML = `<div class="question-mark">?</div><h2>Who am I?</h2><p class="who-hint"><strong>STARTING HINT:</strong> ${escapeHtml(data.whoAmIHint || "Listen to the clue, ask yes-or-no questions, and guess the identity.")}</p><p class="subcopy">Ask up to two yes-or-no questions, then enter your guess.</p><div class="who-question-list" id="whoQuestionList">${availableQuestions.map(question => `<button type="button" data-who-question="${question.id}">${escapeHtml(question.label)}</button>`).join("")}</div><div class="who-clues" id="whoClues"></div><form class="scramble-form" id="whoGuessForm"><input id="whoGuessInput" maxlength="60" autocomplete="off" placeholder="Type your guess" aria-label="Mystery identity guess"><button>GUESS</button></form>`;
+        byId("whoQuestionList").querySelectorAll("[data-who-question]").forEach(button => button.addEventListener("click", () => {
+          if (button.disabled || !state.playerConn?.open) return;
+          button.disabled = true;
+          state.playerConn.send({ type: "who-question", round: state.playerWhoAmIRound, questionId: button.dataset.whoQuestion });
+        }));
+        byId("whoGuessForm").addEventListener("submit", event => {
+          event.preventDefault();
+          const input = byId("whoGuessInput");
+          if (!input.value.trim() || !state.playerConn?.open) return;
+          input.disabled = true;
+          state.playerConn.send({ type: "who-guess", round: state.playerWhoAmIRound, guess: input.value.slice(0, 60) });
+        });
+      }
+      const asked = new Set(data.whoAmIQuestions.map(entry => entry.id));
+      const myQuestionCount = data.whoAmIQuestions.filter(entry => entry.playerToken === state.playerToken).length;
+      const usedBothQuestions = myQuestionCount >= 2;
+      byId("whoQuestionList").querySelectorAll("[data-who-question]").forEach(button => { button.disabled = asked.has(button.dataset.whoQuestion) || usedBothQuestions || Boolean(ownPlayer?.answered); });
+      const clueHistory = byId("whoClues");
+      clueHistory.innerHTML = data.whoAmIQuestions.length ? data.whoAmIQuestions.map(entry => {
+        const question = availableQuestions.find(candidate => candidate.id === entry.id);
+        return question ? `<p>${escapeHtml(question.label)} <strong>${entry.answer ? "Yes" : "No"}</strong></p>` : "";
+      }).join("") : "No clues yet. Ask the first question.";
+      clueHistory.scrollTop = clueHistory.scrollHeight;
+      const input = byId("whoGuessInput");
+      const guessButton = byId("whoGuessForm")?.querySelector("button");
+      if (input) input.disabled = Boolean(ownPlayer?.answered);
+      if (guessButton) guessButton.disabled = Boolean(ownPlayer?.answered);
+      const correctCount = data.players.filter(player => player.answered).length;
+      byId("playerNote").textContent = ownPlayer?.answered ? "Correct! Nice guess." : ownPlayer?.whoWrong ? `${correctCount} guessed correctly. Not quite; ${usedBothQuestions ? "you've used both questions" : `${2 - myQuestionCount} question${myQuestionCount === 1 ? "" : "s"} left`}.` : usedBothQuestions ? `${correctCount} guessed correctly. You've used both questions; keep guessing.` : `${correctCount} guessed correctly. Ask ${2 - myQuestionCount} more question${myQuestionCount === 1 ? "" : "s"} or guess.`;
     }
     function raceRankedTokens() {
       return [...state.raceParticipants].sort((token1, token2) => {
@@ -1649,6 +1885,10 @@
       }
       if (data.game === "scramble") {
         renderScramblePlayer(data);
+        return;
+      }
+      if (data.game === "whoami") {
+        renderWhoAmIPlayer(data);
         return;
       }
       if (data.game === "rps") {
