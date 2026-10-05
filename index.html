@@ -148,7 +148,7 @@
     .retro-column-icon { margin-right: 3px; }
     .retro-column-hint { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.35; }
     .retro-column-count { float: right; margin-left: 6px; padding: 3px 6px; background: var(--white); font: 10px var(--mono); }
-    .retro-items { position: absolute; z-index: 2; inset: 70px 8px 58px; min-height: 0; display: block; overflow: visible; padding: 0; pointer-events: none; }
+    .retro-items { position: absolute; z-index: 2; inset: 70px 8px 66px; min-height: 0; display: block; overflow: visible; padding: 0; pointer-events: none; }
     .retro-note { position: absolute; left: var(--note-x, 50%); top: var(--note-y, 50%); width: var(--note-width, 140px); height: var(--note-height, 80px); display: grid; place-items: center; margin: 0; padding: 10px; border: 1px solid #dce1d8; background: var(--note-color, #fffefa); color: var(--ink); box-shadow: 2px 5px 7px #17251f30; font-size: var(--note-font-size, 13px); line-height: 1.3; text-align: center; overflow-wrap: anywhere; overflow: hidden; transform: translate(-50%, -50%) rotate(var(--note-rotation, -1deg)); pointer-events: auto; }
     .retro-note[draggable="true"] { cursor: grab; touch-action: none; }
     .retro-note[draggable="true"]:active { cursor: grabbing; }
@@ -164,7 +164,8 @@
     .retro-column[data-column="good"] .retro-note-hidden { background: #eff7d9; }
     .retro-column[data-column="wrong"] .retro-note-hidden { background: #fff0e9; }
     .retro-column[data-column="shoutout"] .retro-note-hidden { background: #e9edff; }
-    .retro-compose-slot { padding: 0 9px 9px; }
+    .retro-compose-slot { position: absolute; z-index: 4; right: 9px; bottom: 9px; left: 9px; padding: 0; }
+    .retro-column-composing .retro-compose-slot { inset: 66px 12px 64px; z-index: 5; display: grid; align-content: center; padding: 12px; border: 1px solid #17251f66; background: #fffefaed; box-shadow: 3px 4px 0 #17251f33; }
     .retro-add-slot { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #aeb8ac; background: #fffefa99; color: var(--muted); font: 10px var(--mono); }
     .retro-add-slot:hover { border-color: var(--blue); background: var(--white); color: var(--ink); }
     .retro-add-slot:disabled { opacity: .45; cursor: not-allowed; }
@@ -224,8 +225,8 @@
     .retro-host-mode .retro-column-title { font-size: 16px; }
     .retro-host-mode .retro-column-hint { color: #354139; }
     .retro-host-mode .retro-column-count { border: 1px solid #17251f44; }
-    .retro-host-mode .retro-items { inset: 60px 10px 52px; }
-    .retro-host-mode .retro-compose-slot { padding: 0 14px 10px; }
+    .retro-host-mode .retro-items { inset: 60px 10px 54px; }
+    .retro-host-mode .retro-compose-slot { right: 14px; bottom: 10px; left: 14px; }
     .retro-host-mode .retro-add-slot { min-height: 35px; border-color: #34403988; background: #fffefa55; color: #354139; }
     .retro-host-mode .retro-note { border-color: #e0e1d9; box-shadow: 2px 5px 5px #17251f2b; }
     .draw-board { display: block; width: 100%; aspect-ratio: 2 / 1; border: 1px solid var(--line); background: #fffefa; touch-action: none; }
@@ -279,8 +280,8 @@
     .player-view.retro-player-mode .retro-board { max-width: 1280px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(260px, 1fr); gap: 16px; margin: 0 auto; }
     .player-view.retro-player-mode .retro-column { min-height: 260px; }
     .player-view.retro-player-mode .retro-column-head { min-height: 66px; padding: 13px 14px 8px; }
-    .player-view.retro-player-mode .retro-items { inset: 72px 12px 62px; }
-    .player-view.retro-player-mode .retro-compose-slot { padding: 0 12px 12px; }
+    .player-view.retro-player-mode .retro-items { inset: 72px 12px 66px; }
+    .player-view.retro-player-mode .retro-compose-slot { right: 12px; bottom: 10px; left: 12px; }
     .player-view.retro-player-mode .retro-compose textarea { min-height: 132px; max-height: 260px; font-size: 16px; line-height: 1.45; }
     .player-view.retro-player-mode .retro-compose-actions button { min-height: 38px; padding-inline: 14px; font-size: 12px; }
     .player-view.race-view { margin-top: 1vh; }
@@ -320,7 +321,7 @@
       .retro-host-mode .retro-reveal-button { padding-inline: 7px; }
       .retro-host-mode .retro-board { grid-template-columns: 1fr; grid-auto-rows: minmax(220px, auto); }
       .retro-host-mode .retro-column { min-height: 220px; }
-      .retro-host-mode .retro-column .retro-items { inset: 60px 10px 52px; }
+      .retro-host-mode .retro-column .retro-items { inset: 60px 10px 54px; }
       .retro-host-mode .retro-column { min-height: 200px; }
       .retro-host-mode .retro-column .retro-items { max-height: 180px; }
       .retro-board-tools-right { flex-wrap: wrap; }
@@ -330,7 +331,7 @@
       .player-view.retro-player-mode .stage-body { padding: 14px 10px; }
       .player-view.retro-player-mode .retro-board { grid-template-columns: 1fr; grid-auto-rows: minmax(250px, auto); gap: 12px; }
       .player-view.retro-player-mode .retro-column { min-height: 250px; }
-      .player-view.retro-player-mode .retro-items { inset: 70px 10px 58px; }
+      .player-view.retro-player-mode .retro-items { inset: 70px 10px 66px; }
       .player-view.retro-player-mode .retro-compose textarea { min-height: 120px; }
     }
     @media (max-width: 420px) {
@@ -1345,7 +1346,7 @@
           const x = Math.max(marginX, Math.min(100 - marginX, Number(item.x) || 50));
           const y = Math.max(marginY, Math.min(100 - marginY, Number(item.y) || 50));
           return `<article class="retro-note" data-retro-note-id="${item.id}" data-card-color="${item.color}" ${hostCanMove ? 'data-retro-draggable="true"' : ""} style="left:${x}%;top:${y}%;--note-width:${layout.width}px;--note-height:${layout.height}px;--note-font-size:${layout.fontSize}px;--note-rotation:${index % 2 ? "1deg" : "-1deg"}">${escapeHtml(item.text)}</article>`;
-        }).join("") : `<p class="retro-empty">${column.empty}</p>`;
+        }).join("") : "";
       }
     }
     function bindRetroForms(prefix, onPost) {
@@ -1366,7 +1367,10 @@
           openRetroComposer(prefix, column);
         } else if (cancelButton) {
           const column = retroColumns.find(candidate => candidate.id === cancelButton.dataset.retroCancel);
-          if (column) byId(`${prefix}${column.id}Compose`).innerHTML = retroAddSlotMarkup(column);
+          if (column) {
+            byId(`${prefix}${column.id}Compose`).innerHTML = retroAddSlotMarkup(column);
+            byId(`${prefix}${column.id}Compose`).closest(".retro-column").classList.remove("retro-column-composing");
+          }
         } else if (colorButton) {
           const form = colorButton.closest("[data-retro-form]");
           if (!form) return;
@@ -1385,7 +1389,10 @@
         if (!text) { input.focus(); return; }
         onPost(form.dataset.retroForm, text, form.dataset.cardColor || "yellow");
         const column = retroColumns.find(candidate => candidate.id === form.dataset.retroForm);
-        if (column) byId(`${prefix}${column.id}Compose`).innerHTML = retroAddSlotMarkup(column);
+        if (column) {
+          byId(`${prefix}${column.id}Compose`).innerHTML = retroAddSlotMarkup(column);
+          byId(`${prefix}${column.id}Compose`).closest(".retro-column").classList.remove("retro-column-composing");
+        }
       });
       if (prefix !== "hostRetro") return;
       board.addEventListener("pointerdown", event => {
@@ -1423,6 +1430,7 @@
     }
     function openRetroComposer(prefix, column) {
       const slot = byId(`${prefix}${column.id}Compose`);
+      slot.closest(".retro-column").classList.add("retro-column-composing");
       slot.innerHTML = `<form class="retro-compose" data-retro-form="${column.id}" data-card-color="yellow"><textarea maxlength="180" placeholder="Write a thought…" aria-label="Anonymous ${column.title} card"></textarea>${retroColorPickerMarkup("yellow")}<div class="retro-compose-actions"><button type="button" data-retro-cancel="${column.id}">CANCEL</button><button class="retro-done" type="submit">POST CARD</button></div></form>`;
       slot.querySelector("textarea").focus();
     }
